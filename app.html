@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>業務時間記録ツール</title>
+<script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.2/dist/sql-wasm.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', 'Hiragino Sans', 'Yu Gothic', sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; }
+
+  header { background: #1a1a2e; color: white; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header .date { font-size: 13px; color: #8899bb; margin-left: auto; }
+
+  .layout { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; max-width: 1100px; margin: 0 auto; }
+
+  .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .card h2 { font-size: 13px; font-weight: 600; color: #667; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 14px; }
+
+  textarea { width: 100%; border: 1.5px solid #e0e4ef; border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: 'Courier New', monospace; resize: vertical; min-height: 100px; outline: none; transition: border .2s; }
+  textarea:focus { border-color: #4f6ef7; }
+
+  .btn { display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; border: none; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; }
+  .btn-primary { background: #4f6ef7; color: white; }
+  .btn-primary:hover { background: #3a58e0; }
+  .btn-success { background: #22c55e; color: white; }
+  .btn-success:hover { background: #16a34a; }
+  .btn-danger { background: #ef4444; color: white; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn-warning { background: #f59e0b; color: white; }
+  .btn-warning:hover { background: #d97706; }
+  .btn-outline { background: white; color: #4f6ef7; border: 1.5px solid #4f6ef7; }
+  .btn-outline:hover { background: #f0f3ff; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* Task list */
+  #taskList { max-height: 500px; overflow-y: auto; }
+  .task-item { border: 1.5px solid #e8eaf0; border-radius: 9px; margin-bottom: 7px; overflow: hidden; transition: border-color .15s; }
+  .task-item.active { border-color: #4f6ef7; }
+  .task-item.done { opacity: .55; }
+  .task-main { display: flex; align-items: center; gap: 8px; padding: 9px 12px; }
+  .task-main:hover { background: #f8f9ff; }
+  .task-item.active .task-main { background: #f0f3ff; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot-pending { background: #d1d5db; }
+  .dot-active { background: #22c55e; animation: pulse 1.5s infinite; }
+  .dot-done { background: #4f6ef7; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .task-num { font-weight: 700; font-size: 14px; min-width: 58px; }
+  .task-type { font-size: 13px; color: #556; flex: 1; }
+  .task-timer { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; color: #4f6ef7; min-width: 66px; text-align: right; }
+  .task-btns { display: flex; gap: 5px; margin-left: 4px; }
+  .task-sub { display: flex; align-items: center; gap: 8px; padding: 5px 12px 7px; background: #f7f8ff; border-top: 1px solid #e8eaf0; font-size: 12px; color: #778; }
+  .task-sub .start-lbl { flex: 1; }
+  .break-chip { background: #fef3c7; color: #b45309; border-radius: 20px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+
+  /* Active summary panel */
+  .active-panel { background: linear-gradient(135deg, #1a1a2e 0%, #2d3561 100%); color: white; border-radius: 12px; padding: 18px 20px; }
+  .active-panel h2 { font-size: 11px; color: #8899cc; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 12px; }
+  .active-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.07); }
+  .active-row:last-child { border: none; }
+  .active-id { font-size: 16px; font-weight: 800; min-width: 68px; }
+  .active-type { font-size: 13px; color: #aab8ee; flex: 1; }
+  .active-timer { font-size: 22px; font-weight: 300; font-variant-numeric: tabular-nums; }
+  .no-active { color: #8899cc; font-size: 14px; padding: 6px 0; }
+  .break-global { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+  .break-badge { background: #fef3c7; color: #b45309; border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 700; }
+
+  /* Stats */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .stat-box { background: #f8f9ff; border-radius: 8px; padding: 13px; }
+  .stat-box .val { font-size: 20px; font-weight: 700; }
+  .stat-box .lbl { font-size: 11px; color: #889; margin-top: 2px; }
+
+  /* Report */
+  .report-output { background: #1a1a2e; color: #e8f0ff; border-radius: 8px; padding: 14px; font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; min-height: 60px; max-height: 280px; overflow-y: auto; }
+
+  .msg { font-size: 12px; padding: 7px 11px; border-radius: 6px; margin-top: 7px; }
+  .msg-ok { background: #dcfce7; color: #15803d; }
+  .msg-err { background: #fee2e2; color: #dc2626; }
+  .right-col { display: flex; flex-direction: column; gap: 16px; }
+  .empty { color: #bbb; font-size: 13px; padding: 10px 0; }
+  .type-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f0f2f8; font-size: 13px; }
+  .type-row span:last-child { font-weight: 600; color: #4f6ef7; }
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:22px">⏱</span>
+  <h1>業務時間記録ツール</h1>
+  <span class="date" id="headerDate"></span>
+</header>
+
+<div class="layout">
+  <!-- LEFT -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+    <div class="card">
+      <h2>案件登録</h2>
+      <textarea id="taskInput" placeholder="例：&#10;12344 調査&#10;12345 スクレイピング&#10;12346 名寄せ"></textarea>
+      <div style="margin-top:9px;display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-primary" onclick="registerTasks()">登録</button>
+        <button class="btn btn-outline btn-sm" onclick="clearTasks()">今日をリセット</button>
+      </div>
+      <div id="regMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>今日のタスク</h2>
+      <div id="taskList"><div class="empty">タスクがありません</div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="right-col">
+    <!-- Active summary -->
+    <div class="active-panel">
+      <h2>現在作業中</h2>
+      <div id="activeList"><div class="no-active">タスクを選択してください</div></div>
+      <div class="break-global">
+        <button class="btn btn-warning btn-sm" id="breakStartBtn" onclick="startBreakAll()" style="display:none;">☕ 全タスク休憩</button>
+        <button class="btn btn-success btn-sm" id="breakEndBtn" onclick="endBreakAll()" style="display:none;">▶ 休憩終了</button>
+        <span class="break-badge" id="breakBadge" style="display:none;">🍵 休憩中</span>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card">
+      <h2>本日の集計</h2>
+      <div class="stats-grid">
+        <div class="stat-box"><div class="val" id="totalTime">0分</div><div class="lbl">総作業時間</div></div>
+        <div class="stat-box"><div class="val" id="taskCount">0</div><div class="lbl">作業タスク数</div></div>
+      </div>
+      <div id="typeBreakdown"></div>
+    </div>
+
+    <!-- Report -->
+    <div class="card">
+      <h2>報告生成</h2>
+      <div style="display:flex;gap:8px;margin-bottom:11px;">
+        <button class="btn btn-primary btn-sm" onclick="generateReport('simple')">📋 簡易版</button>
+        <button class="btn btn-outline btn-sm" onclick="generateReport('detail')">📝 詳細版</button>
+        <button class="btn btn-sm" style="background:#f1f3f9;color:#445;" onclick="copyReport()">📋 コピー</button>
+      </div>
+      <div class="report-output" id="reportOutput">ボタンを押すと報告文を生成します</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────
+// activeTasks: Map<taskId, { logId, startTime: Date }>
+const activeTasks = new Map();
+let breakActive = false;
+// savedActiveTasks during break: Map<taskId, startTime>
+let priorActiveTasks = new Map();
+let timerInterval = null;
+let db = null, SQL = null;
+const TODAY = new Date().toISOString().slice(0, 10);
+
+// ─── Init ─────────────────────────────────────────────
+document.getElementById('headerDate').textContent =
+  new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'long',day:'numeric',weekday:'short'});
+
+(async () => {
+  SQL = await initSqlJs({ locateFile: f => `https://cdn.jsdelivr.net/npm/sql.js@1.10.2/dist/${f}` });
+  await loadDB();
+  initSchema();
+  renderAll();
+  startLoop();
+})();
+
+// ─── IndexedDB ────────────────────────────────────────
+const IDB_NAME = 'tasktracker2', IDB_STORE = 'db', IDB_KEY = 'main';
+function openIDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(IDB_STORE);
+    req.onsuccess = e => res(e.target.result);
+    req.onerror = rej;
+  });
+}
+async function loadDB() {
+  const idb = await openIDB();
+  const req = idb.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).get(IDB_KEY);
+  const data = await new Promise(res => { req.onsuccess = e => res(e.target.result); req.onerror = () => res(null); });
+  db = data ? new SQL.Database(data) : new SQL.Database();
+}
+async function saveDB() {
+  const idb = await openIDB();
+  idb.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).put(db.export(), IDB_KEY);
+}
+
+// ─── Schema ───────────────────────────────────────────
+function initSchema() {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT NOT NULL, type TEXT NOT NULL, date TEXT NOT NULL,
+      status TEXT DEFAULT 'pending', created_at TEXT NOT NULL,
+      PRIMARY KEY (id, date)
+    );
+    CREATE TABLE IF NOT EXISTS work_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id TEXT NOT NULL, date TEXT NOT NULL,
+      start_time TEXT NOT NULL, end_time TEXT, is_break INTEGER DEFAULT 0
+    );
+  `);
+}
+
+// ─── Registration ─────────────────────────────────────
+function registerTasks() {
+  const raw = document.getElementById('taskInput').value.trim();
+  if (!raw) return showMsg('regMsg', '入力が空です', true);
+  let added = 0, skipped = 0;
+  for (const line of raw.split('\n').map(l => l.trim()).filter(Boolean)) {
+    const m = line.match(/^(\S+)\s+(.+)$/);
+    if (!m) { skipped++; continue; }
+    try {
+      db.run(`INSERT OR IGNORE INTO tasks (id,type,date,status,created_at) VALUES (?,?,?,'pending',?)`,
+             [m[1], m[2].trim(), TODAY, new Date().toISOString()]);
+      added++;
+    } catch { skipped++; }
+  }
+  saveDB();
+  document.getElementById('taskInput').value = '';
+  showMsg('regMsg', `${added}件を登録${skipped ? `（${skipped}件スキップ）` : ''}`, false);
+  renderAll();
+}
+
+function clearTasks() {
+  if (!confirm('今日のタスクと作業ログをリセットしますか？')) return;
+  stopAllTasks(true);
+  db.run(`DELETE FROM tasks WHERE date=?`, [TODAY]);
+  db.run(`DELETE FROM work_logs WHERE date=?`, [TODAY]);
+  saveDB(); renderAll();
+}
+
+// ─── Task start / stop ────────────────────────────────
+function startTask(taskId) {
+  if (activeTasks.has(taskId) || breakActive) return;
+  const now = new Date();
+  db.run(`UPDATE tasks SET status='active' WHERE id=? AND date=?`, [taskId, TODAY]);
+  db.run(`INSERT INTO work_logs (task_id,date,start_time) VALUES (?,?,?)`,
+         [taskId, TODAY, now.toISOString()]);
+  const r = queryAll(`SELECT id FROM work_logs WHERE task_id=? AND date=? AND end_time IS NULL AND is_break=0 ORDER BY id DESC LIMIT 1`, [taskId, TODAY]);
+  activeTasks.set(taskId, { logId: r[0]?.[0], startTime: now });
+  saveDB(); renderAll();
+}
+
+function stopTask(taskId, silent = false) {
+  if (!activeTasks.has(taskId)) return;
+  const { logId } = activeTasks.get(taskId);
+  const now = new Date().toISOString();
+  if (logId) db.run(`UPDATE work_logs SET end_time=? WHERE id=?`, [now, logId]);
+  db.run(`UPDATE tasks SET status='done' WHERE id=? AND date=?`, [taskId, TODAY]);
+  activeTasks.delete(taskId);
+  if (!silent) { saveDB(); renderAll(); }
+}
+
+function stopAllTasks(silent = false) {
+  for (const id of [...activeTasks.keys()]) stopTask(id, true);
+  breakActive = false; priorActiveTasks.clear();
+  if (!silent) { saveDB(); renderAll(); }
+}
+
+// ─── Break (global — pauses all active tasks) ─────────
+function startBreakAll() {
+  if (breakActive || activeTasks.size === 0) return;
+  breakActive = true;
+  priorActiveTasks = new Map([...activeTasks].map(([id, {startTime}]) => [id, startTime]));
+  const now = new Date().toISOString();
+  for (const [id, {logId}] of activeTasks) {
+    if (logId) db.run(`UPDATE work_logs SET end_time=? WHERE id=?`, [now, logId]);
+    db.run(`INSERT INTO work_logs (task_id,date,start_time,is_break) VALUES (?,?,?,1)`, [id, TODAY, now]);
+  }
+  activeTasks.clear();
+  saveDB(); renderAll();
+}
+
+function endBreakAll() {
+  if (!breakActive) return;
+  breakActive = false;
+  const now = new Date().toISOString();
+  // end break logs
+  db.run(`UPDATE work_logs SET end_time=? WHERE date=? AND is_break=1 AND end_time IS NULL`, [now, TODAY]);
+  // resume each prior task
+  for (const [id, ] of priorActiveTasks) {
+    db.run(`INSERT INTO work_logs (task_id,date,start_time) VALUES (?,?,?)`, [id, TODAY, now]);
+    const r = queryAll(`SELECT id FROM work_logs WHERE task_id=? AND date=? AND end_time IS NULL AND is_break=0 ORDER BY id DESC LIMIT 1`, [id, TODAY]);
+    activeTasks.set(id, { logId: r[0]?.[0], startTime: new Date() });
+  }
+  priorActiveTasks.clear();
+  saveDB(); renderAll();
+}
+
+// ─── Render loop ──────────────────────────────────────
+function startLoop() {
+  timerInterval = setInterval(renderTimers, 1000);
+}
+
+function renderTimers() {
+  // update inline timers in task list
+  for (const [id, {startTime}] of activeTasks) {
+    const el = document.getElementById(`timer-${id}`);
+    if (el) el.textContent = fmtElapsed(Date.now() - startTime.getTime());
+  }
+  // update active panel timers
+  for (const [id, {startTime}] of activeTasks) {
+    const el = document.getElementById(`atimer-${id}`);
+    if (el) el.textContent = fmtElapsed(Date.now() - startTime.getTime());
+  }
+}
+
+function renderAll() {
+  renderTaskList();
+  renderActivePanel();
+  renderStats();
+}
+
+function renderTaskList() {
+  const tasks = queryAll(`SELECT id,type,status FROM tasks WHERE date=? ORDER BY created_at`, [TODAY]);
+  const el = document.getElementById('taskList');
+  if (!tasks.length) { el.innerHTML = '<div class="empty">タスクがありません</div>'; return; }
+  el.innerHTML = tasks.map(([id, type, status]) => {
+    const isActive = activeTasks.has(id);
+    const isDone = status === 'done' && !isActive;
+    const mins = getTaskMinutes(id);
+    const dotClass = isActive ? 'dot-active' : isDone ? 'dot-done' : 'dot-pending';
+    const itemClass = isActive ? 'active' : isDone ? 'done' : '';
+    const startDisabled = (isActive || breakActive) ? 'disabled' : '';
+    const stopDisabled = !isActive ? 'disabled' : '';
+    const timerDisplay = isActive ? fmtElapsed(Date.now() - activeTasks.get(id).startTime.getTime()) : (mins > 0 ? fmtMins(mins) : '');
+    const startInfo = isActive
+      ? `<div class="task-sub"><span class="start-lbl">開始 ${activeTasks.get(id).startTime.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}</span></div>`
+      : '';
+    return `<div class="task-item ${itemClass}" id="item-${escHtml(id)}">
+      <div class="task-main">
+        <div class="status-dot ${dotClass}"></div>
+        <div class="task-num">${escHtml(id)}</div>
+        <div class="task-type">${escHtml(type)}</div>
+        <div class="task-timer" id="timer-${escHtml(id)}">${timerDisplay}</div>
+        <div class="task-btns">
+          <button class="btn btn-success btn-sm" onclick="startTask('${escHtml(id)}')" ${startDisabled}>▶</button>
+          <button class="btn btn-danger btn-sm" onclick="stopTask('${escHtml(id)}')" ${stopDisabled}>■</button>
+        </div>
+      </div>${startInfo}
+    </div>`;
+  }).join('');
+}
+
+function renderActivePanel() {
+  const el = document.getElementById('activeList');
+  const hasBreak = breakActive;
+  document.getElementById('breakStartBtn').style.display = (!hasBreak && activeTasks.size > 0) ? 'inline-flex' : 'none';
+  document.getElementById('breakEndBtn').style.display = hasBreak ? 'inline-flex' : 'none';
+  document.getElementById('breakBadge').style.display = hasBreak ? 'inline-block' : 'none';
+
+  if (hasBreak) {
+    const ids = [...priorActiveTasks.keys()];
+    el.innerHTML = ids.map(id => {
+      const r = queryAll(`SELECT type FROM tasks WHERE id=? AND date=?`, [id, TODAY]);
+      return `<div class="active-row">
+        <div class="active-id">${escHtml(id)}</div>
+        <div class="active-type">${escHtml(r[0]?.[0] ?? '')} <span class="break-chip">休憩中</span></div>
+      </div>`;
+    }).join('') || '<div class="no-active">タスクがありません</div>';
+    return;
+  }
+
+  if (activeTasks.size === 0) {
+    el.innerHTML = '<div class="no-active">タスクを選択してください</div>';
+    return;
+  }
+  el.innerHTML = [...activeTasks.entries()].map(([id, {startTime}]) => {
+    const r = queryAll(`SELECT type FROM tasks WHERE id=? AND date=?`, [id, TODAY]);
+    return `<div class="active-row">
+      <div class="active-id">${escHtml(id)}</div>
+      <div class="active-type">${escHtml(r[0]?.[0] ?? '')}</div>
+      <div class="active-timer" id="atimer-${escHtml(id)}">${fmtElapsed(Date.now()-startTime.getTime())}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderStats() {
+  const totalMins = getTotalMinutes();
+  document.getElementById('totalTime').textContent = fmtMins(totalMins);
+  const worked = queryAll(`SELECT DISTINCT task_id FROM work_logs WHERE date=? AND is_break=0`, [TODAY]);
+  document.getElementById('taskCount').textContent = worked.length;
+  const tasks = queryAll(`SELECT id,type FROM tasks WHERE date=?`, [TODAY]);
+  const typeMap = {};
+  for (const [id, type] of tasks) {
+    const m = getTaskMinutes(id);
+    if (m > 0) typeMap[type] = (typeMap[type] || 0) + m;
+  }
+  const typeEl = document.getElementById('typeBreakdown');
+  typeEl.innerHTML = Object.entries(typeMap).sort((a,b)=>b[1]-a[1])
+    .map(([t,m]) => `<div class="type-row"><span>${escHtml(t)}</span><span>${fmtMins(m)}</span></div>`).join('');
+}
+
+// ─── Report ───────────────────────────────────────────
+const TYPE_DESC = {
+  '調査':'対象施設の調査を実施。','スクレイピング':'対象サイトからデータ取得を実施。',
+  '名寄せ':'既存データベースとの照合作業を実施。','検品':'取得データの品質確認を実施。',
+};
+function generateReport(mode) {
+  const tasks = queryAll(`SELECT id,type FROM tasks WHERE date=? ORDER BY created_at`, [TODAY]);
+  const lines = ['【本日の作業】\n'];
+  for (const [id, type] of tasks) {
+    const mins = getTaskMinutes(id);
+    if (!mins) continue;
+    lines.push(`${id} ${type}`);
+    if (mode === 'detail') lines.push(TYPE_DESC[type] ?? '作業を実施。');
+    lines.push(`作業時間：約${fmtMins(mins)}\n`);
+  }
+  if (lines.length === 1) lines.push('（作業記録なし）');
+  document.getElementById('reportOutput').textContent = lines.join('\n');
+}
+function copyReport() {
+  navigator.clipboard.writeText(document.getElementById('reportOutput').textContent)
+    .then(() => { const b=event.target; b.textContent='✅ 完了'; setTimeout(()=>b.textContent='📋 コピー',1500); });
+}
+
+// ─── Helpers ──────────────────────────────────────────
+function queryAll(sql, params=[]) {
+  try { const r=db.exec(sql,params); return r[0]?.values??[]; } catch { return []; }
+}
+function getTaskMinutes(taskId) {
+  const rows = queryAll(`SELECT start_time,end_time FROM work_logs WHERE task_id=? AND date=? AND is_break=0`, [taskId, TODAY]);
+  const now = Date.now();
+  let total = 0;
+  for (const [s, e] of rows) {
+    const st = new Date(s).getTime();
+    const en = e ? new Date(e).getTime() : (activeTasks.has(taskId) ? now : st);
+    total += Math.max(0, en - st);
+  }
+  return Math.round(total / 60000);
+}
+function getTotalMinutes() {
+  const rows = queryAll(`SELECT start_time,end_time,task_id FROM work_logs WHERE date=? AND is_break=0`, [TODAY]);
+  const now = Date.now();
+  let total = 0;
+  for (const [s, e, tid] of rows) {
+    const st = new Date(s).getTime();
+    const en = e ? new Date(e).getTime() : (activeTasks.has(tid) ? now : st);
+    total += Math.max(0, en - st);
+  }
+  return Math.round(total / 60000);
+}
+function fmtElapsed(ms) {
+  const s = Math.floor(ms/1000);
+  return `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+}
+function fmtMins(m) {
+  if (!m) return '0分';
+  return m < 60 ? `${m}分` : (m%60 ? `${Math.floor(m/60)}時間${m%60}分` : `${Math.floor(m/60)}時間`);
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function showMsg(id, msg, isErr) {
+  const el = document.getElementById(id);
+  el.innerHTML = `<div class="msg ${isErr?'msg-err':'msg-ok'}">${escHtml(msg)}</div>`;
+  setTimeout(() => el.innerHTML='', 3000);
+}
+</script>
+</body>
+</html>
